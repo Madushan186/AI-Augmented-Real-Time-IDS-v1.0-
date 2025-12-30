@@ -1,9 +1,7 @@
 import streamlit as st
 import json
-import pandas as pd
 import time
 import os
-import plotly.express as px
 
 # -----------------------
 # PAGE CONFIGURATION
@@ -24,7 +22,6 @@ hide_menu_style = """
 st.markdown(hide_menu_style, unsafe_allow_html=True)
 
 STATE_FILE = "ids_state.json"
-LOG_FILE = "attack_log.csv"
 
 # -----------------------
 # DATA LOADING
