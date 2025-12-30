@@ -4,29 +4,34 @@ import time
 import joblib
 import numpy as np
 import pandas as pd
-from scapy.all import sniff, TCP, UDP, ICMP
+from scapy.all import sniff, TCP, UDP, ICMP, IP
 from collections import deque
 import datetime
+import sys
 
 # ==========================================
 # FINAL YEAR PROJECT: AI-BASED REAL-TIME IDS
 # ==========================================
 # Author: Lakshitha Madushan
 # Component: Packet Capture & Detection Engine
-# Description: Captures live traffic, extracts features, and applies Hybrid Detection (Rules + ML).
 
 # --- CONFIGURATION ---
 MODEL_PATH = "models/rf_ids_model.pkl"
 STATE_FILE = "ids_state.json"
 LOG_FILE = "attack_log.csv"
-HTTP_FLOOD_THRESHOLD = 20  # Requests per second to trigger alert (Rule-based)
-COOLDOWN_DURATION = 3.0    # Stability mechanism to prevent alert flickering
+
+# ULTRATHINK OPTIMIZATION SETTINGS
+# Window: 1.0 second (Instant Feedback). 
+# Threshold: 10 requests. (Anything > 10 req/s is flagged)
+HTTP_WINDOW_SECONDS = 1.0
+HTTP_REQ_THRESHOLD = 10
+
+COOLDOWN_DURATION = 0.1    # 0.1s for INSTANT recovery after attack stops
 
 # --- GLOBAL STATE ---
 # Sliding Window for Rate Calculation
-# deque is used for O(1) appends and pops, crucial for real-time performance.
-packet_times = deque(maxlen=100)
-http_requests = deque(maxlen=200)
+packet_times = deque(maxlen=2000)
+http_requests = deque(maxlen=2000)
 
 # State management variables
 current_status = "Normal"
@@ -34,7 +39,7 @@ last_attack_time = 0.0
 total_packets = 0
 total_attacks = 0
 
-# Load trained Machine Learning Model (Random Forest)
+# Load trained Machine Learning Model
 try:
     model = joblib.load(MODEL_PATH)
     print(f"✅ [INIT] Model loaded successfully from {MODEL_PATH}")
@@ -60,167 +65,172 @@ columns = [
 ]
 
 def log_attack(attack_type, rate):
-    """
-    Logs detected attacks to a CSV file for auditing and dashboard visualization.
-    Format: timestamp, attack_type, rate
-    """
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Initialize file with headers if missing
     if not os.path.exists(LOG_FILE):
         with open(LOG_FILE, "w") as f:
             f.write("timestamp,attack_type,rate\n")
-            
     with open(LOG_FILE, "a") as f:
         f.write(f"{timestamp},{attack_type},{rate:.2f}\n")
 
-def update_state_file(status, total, attacks):
-    """
-    Updates the system state JSON file atomically.
-    Atomic Write: Writes to a .tmp file first, then renames it.
-    This prevents the Dashboard from reading a corrupt/half-written file.
-    """
+def update_state_file(status, total, attacks, **kwargs):
     state = {
         "total": total,
         "attacks": attacks,
-        "status": status
+        "status": status,
+        "last_features": kwargs.get("last_features", "Waiting for traffic..."),
+        "model_status": kwargs.get("model_status", "Unknown")
     }
-    
     tmp_file = f"{STATE_FILE}.tmp"
     try:
         with open(tmp_file, "w") as f:
             json.dump(state, f)
         os.replace(tmp_file, STATE_FILE)
     except Exception as e:
-        print(f"Error updating state: {e}")
+        pass # Silent fail to avoid spam
 
 def extract_features(packet):
-    """
-    Extracts 41 features from a raw packet to match the Random Forest model input.
-    Note: Real-time extraction is simplified compared to offline dataset generation.
-    """
     duration = time.time() - start_time
-    
-    # Protocol encoding: 1=TCP, 2=UDP, 3=ICMP
-    if TCP in packet:
-        protocol = 1
-    elif UDP in packet:
-        protocol = 2
-    elif ICMP in packet:
-        protocol = 3
-    else:
-        protocol = 0
-
+    if TCP in packet: protocol = 1
+    elif UDP in packet: protocol = 2
+    elif ICMP in packet: protocol = 3
+    else: protocol = 0
     src_bytes = len(packet)
     dst_bytes = len(packet)
-
-    # Initialize feature vector
     features = np.zeros(41)
     features[0] = duration
     features[1] = protocol
     features[4] = src_bytes
     features[5] = dst_bytes
-    features[22] = total_packets # Approximation for 'count' feature
+    features[22] = total_packets 
     features[23] = total_packets 
-
-    # Reshape for Scikit-Learn (1 row, N columns)
     df = pd.DataFrame(features.reshape(1, -1), columns=columns)
     return df
 
 def packet_handler(packet):
-    """
-    Main Callback Function triggered for every captured packet.
-    Implements the Hybrid Detection Logic.
-    """
-    global total_packets, total_attacks, current_status, last_attack_time
+    global total_packets, total_attacks, current_status, last_attack_time, last_file_update
 
     now = time.time()
     total_packets += 1
     packet_times.append(now)
+    
+    # Initialize Throttle Timer
+    if 'last_file_update' not in globals():
+        last_file_update = 0
 
     # ---------------------------
-    # 1. TRAFFIC ANALYSIS (RULES)
+    # 1. OPTIMIZED TRAFFIC ANALYSIS
     # ---------------------------
     is_http = False
-    if TCP in packet and packet.haslayer(TCP):
-        if packet[TCP].dport == 80 or packet[TCP].sport == 80 or packet[TCP].dport == 8080 or packet[TCP].sport == 8080:
+    if TCP in packet:
+        # Check ports (8080 focus)
+        # Using simple integer set checking for speed
+        if packet[TCP].dport == 8080 or packet[TCP].sport == 8080:
              is_http = True
              http_requests.append(now)
 
-    # Rate Calculation (Packets/Sec)
-    packet_rate = 0
-    if len(packet_times) > 1:
-        duration = packet_times[-1] - packet_times[0]
-        if duration > 0:
-            packet_rate = len(packet_times) / duration
-
-    # HTTP Rate Calculation
-    http_rate = 0
-    if len(http_requests) > 1:
-        # Filter requests from last 1.0 second (Sliding Window)
-        valid_requests = [t for t in http_requests if now - t <= 1.0]
-        http_rate = len(valid_requests)
-    
     # ---------------------------
-    # 2. DETECTION LOGIC (HYBRID)
+    # 2. O(1) SLIDING WINDOW MAINTAINANCE
+    # ---------------------------
+    # Remove packets older than window from LEFT of deque
+    while http_requests and http_requests[0] < (now - HTTP_WINDOW_SECONDS):
+        http_requests.popleft()
+        
+    while packet_times and packet_times[0] < (now - 1.0):
+        packet_times.popleft()
+
+    # Current Counts (Instant access via len)
+    http_count_window = len(http_requests)
+    packet_rate = len(packet_times) # Rate per 1.0s (since update above)
+    
+    # Debug Print (Every ~50 packets)
+    if total_packets % 50 == 0:
+        print(f"DEBUG: Rate={packet_rate}/s | HTTP Queue={http_count_window}")
+        sys.stdout.flush()
+
+    # ---------------------------
+    # 3. INSTANT DETECTION LOGIC
     # ---------------------------
     attack_detected = False
     attack_type = ""
     
-    # RULE 1: Volumetric Analysis (HTTP Flood)
-    if http_rate > HTTP_FLOOD_THRESHOLD:
+    # RULE 1: HTTP Flood (Ultra-Sensitive)
+    if http_count_window > HTTP_REQ_THRESHOLD:
         attack_detected = True
-        attack_type = "HTTP Flood (DoS)"
-        print(f"🚨 [RULE] HTTP FLOOD DETECTED! Rate: {http_rate} req/s")
+        attack_type = "HTTP/HTTPS Flood"
+        print(f"🚨 [RULE] FLOOD! {http_count_window} reqs in {HTTP_WINDOW_SECONDS}s")
+        sys.stdout.flush() # FORCE VISIBILITY
 
-    # RULE 2: Machine Learning Analysis (Anomaly)
-    # Applied if no obvious accumulation rule is triggered, or in parallel
-    elif model is not None:
+    # RULE 2: Generic Volumetric
+    elif packet_rate > 300:
+        attack_detected = True
+        attack_type = "Volumetric TCP Flood"
+        print(f"🚨 [RULE] HIGH TRAFFIC! {packet_rate} pkts/s")
+        sys.stdout.flush()
+
+    # RULE 3: ML (Asynchronous Check?) -> Keep it simple for speed
+    elif model is not None and total_packets % 5 == 0: # Only check ML every 5th packet to save CPU
         try:
             features = extract_features(packet)
             prediction = model.predict(features)[0]
             if prediction == "attack": 
                 attack_detected = True
                 attack_type = "ML Anomaly Pattern"
-                print("🚨 [ML] ANOMALY DETECTED BY RANDOM FOREST")
-        except Exception:
+                print("🚨 [ML] ANOMALY DETECTED")
+                sys.stdout.flush()
+        except:
             pass 
 
     # ---------------------------
-    # 3. STATE MACHINE & LOGGING
+    # 4. STATE UPDATE
     # ---------------------------
     if attack_detected:
         last_attack_time = now
         if current_status != "ATTACK":
             current_status = "ATTACK"
             total_attacks += 1
-            log_attack(attack_type, max(http_rate, packet_rate))
+            log_attack(attack_type, max(http_count_window, packet_rate))
     
     else:
-        # Cooldown Logic: Prevents "flickering" of status
+        # Cooldown
         if current_status == "ATTACK":
             time_since_last = now - last_attack_time
             if time_since_last > COOLDOWN_DURATION:
                 current_status = "Normal"
-                print("✅ [INFO] Attack subsided. System returning to Normal.")
+                print("✅ [INFO] Attack subsided.")
+                sys.stdout.flush()
 
-    # Optimized File I/O: Update JSON only periodically or on significant state change
-    if total_packets % 10 == 0 or attack_detected or (current_status == "Normal" and now - last_attack_time < COOLDOWN_DURATION + 1):
-        update_state_file(current_status, total_packets, total_attacks)
+    # Optimized File I/O
+    # Update immediately on status change OR every 0.25s
+    should_update = False
+    if current_status != getattr(packet_handler, 'last_status', None): 
+        should_update = True # Immediate update on state change
+    elif (now - last_file_update) > 0.25:
+        should_update = True
+        
+    if should_update:
+        if len(packet) > 1:
+            try: protocol_name = packet[1].name
+            except: protocol_name = "Raw"
+        else: protocol_name = "Unknown"
+            
+        last_feat_msg = f"Extracted 41 Features (Protocol={protocol_name}, Size={len(packet)}B)"
+        model_stat = "Active (Random Forest)" if model else "Disabled"
+        update_state_file(current_status, total_packets, total_attacks, last_features=last_feat_msg, model_status=model_stat)
+        last_file_update = now
+        packet_handler.last_status = current_status
 
 # --- ENTRY POINT ---
-print(f"🚀 [SYSTEM START] SecureNet AI IDS Initialized...")
-print(f"ℹ️  [CONFIG] Flood Threshold: {HTTP_FLOOD_THRESHOLD} req/s")
-print("📡 Listening on interface 'en0'...")
+print(f"🚀 [SYSTEM START] SecureNet AI IDS Initialized... (ULTRATHINK MODE)")
+print(f"ℹ️  [CONFIG] Threshold: {HTTP_REQ_THRESHOLD} reqs within {HTTP_WINDOW_SECONDS}s")
+print("📡 Listening on 'en0' and 'lo0'...")
 print("Press Ctrl+C to stop")
+sys.stdout.flush()
 
-# Reset State on Startup
-update_state_file("Normal", 0, 0)
+# Reset State
+update_state_file("Normal", 0, 0, last_features="Initializing...", model_status="Loading...")
 
-# Start Packet Sniffer (Scapy)
 sniff(
-    iface="en0",   
+    iface=["en0", "lo0"],   
     prn=packet_handler,
     store=False
 )
-

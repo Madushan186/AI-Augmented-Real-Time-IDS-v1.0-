@@ -1,13 +1,29 @@
 # AI Real-Time Intrusion Detection System (IDS)
 
-## 📌 Project Overview
-This project implements a **Real-Time AI-based Intrusion Detection System (IDS)** that monitors live network traffic, detects abnormal behavior using a **Hybrid AI Architecture** (Random Forest + Isolation Forest), and visualizes alerts on a **real-time dashboard**.
+## 📌 Project Overview (Phase 1: Alpha)
+This project implements the **Core Engine** of a Real-Time AI-based Intrusion Detection System (IDS). 
+Currently, **Phase 1 (50% Completion)** is implemented, which includes:
+- **Packet Sniffing**: Live network capture on `en0`.
+- **Traffic Analysis**: Rule-based detection for HTTP Floods.
+- **Supervised AI**: Random Forest model for known attack patterns.
 
-It is designed as a **Final Year Project** and aligns with **AI / Cybersecurity engineering roles**.
+Severe detected threats are visualized on a **Real-Time Dashboard**.
+
+> **Note**: Advanced features like Unsupervised Learning (Isolation Forest) and Automated Retraining are scheduled for **Phase 2**.
 
 ---
 
-## 🚀 Quick Start Guide
+## 🗺️ Roadmap / Future Work (Phase 2)
+The following features are designed but **currently disabled** or **under development**:
+
+- [ ] **Unsupervised Anomaly Detection**: Integration of Isolation Forest for zero-day threats.
+- [ ] **Automated Model Retraining**: Pipeline to update AI models with new attack data.
+- [ ] **Database Persistence**: SQLite integration for long-term historical logs.
+- [ ] **Detailed Reporting**: PDF export of attack sessions.
+
+---
+
+## 🚀 Quick Start Guide (Phase 1)
 
 ### 1️⃣ How to Start
 The easiest way to run the entire system (Detection Engine + Dashboard) is using the helper script:

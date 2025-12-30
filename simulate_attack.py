@@ -23,7 +23,7 @@ def simulate_http_flood():
     
     try:
         src_ip = get_local_ip()
-        dst_ip = "8.8.8.8" # Dummy destination that routes through en0
+        dst_ip = "192.168.1.5" # Target the User's IP specifically as requested
         src_mac = get_if_hwaddr(INTERFACE)
         dst_mac = "ff:ff:ff:ff:ff:ff" # Broadcast or Gateway MAC would be better, but broadcast ensures visibility
         

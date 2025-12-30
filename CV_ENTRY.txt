@@ -1,0 +1,32 @@
+================================================================================
+  CV / RESUME DESCRIPTIONS : AI REAL-TIME IDS
+================================================================================
+Use these snippets to add this project into your CV, LinkedIn, or Portfolio.
+Choose the option that fits your layout best.
+
+--------------------------------------------------------------------------------
+OPTION 1: Standard "Project" Section (Bullet Points)
+--------------------------------------------------------------------------------
+**Project: AI-Powered Real-Time Intrusion Detection System**
+*   **Core Logic**: Developed a hybrid Network Intrusion Detection System (NIDS) using **Python** and **Scapy** to sniff and analyze live network traffic on macOS.
+*   **AI Implementation**: Engineered a dual-layer detection engine combining **Random Forest** (for known signatures) and **Isolation Forest** (for zero-day anomalies) using **Scikit-learn**.
+*   **Visualization**: Built a professional-grade SOC dashboard with **Streamlit** and **Plotly** to visualize packet velocity, threat severity, and real-time alerts.
+*   **Performance**: Optimized packet processing with queue-based buffering to handle high-traffic bursts (e.g., HTTP Floods) without latency.
+
+--------------------------------------------------------------------------------
+OPTION 2: Short Summary (Best for LinkedIn / Intro)
+--------------------------------------------------------------------------------
+"Designed and built an AI-augmented Network Intrusion Detection System capable of real-time traffic analysis. The system utilizes a hybrid architecture of rule-based filters and Machine Learning models (Random Forest) to identify malicious patterns like DoS attacks. Features include a live interactive dashboard for threat monitoring and comprehensive logging."
+
+--------------------------------------------------------------------------------
+OPTION 3: One-Liner (For "Key Projects" List)
+--------------------------------------------------------------------------------
+"Real-Time NIDS featuring Hybrid AI detection (Random Forest + Isolation Forest) and a live interactive SOC dashboard built with Python/Streamlit."
+
+--------------------------------------------------------------------------------
+TECHNICAL SKILLS USED
+--------------------------------------------------------------------------------
+*   **Languages**: Python 3, Bash Shell
+*   **Libraries**: Scikit-Learn, Pandas, Scapy, Streamlit, Plotly, NumPy
+*   **Concepts**: Network Security, Supervised/Unsupervised Learning, Anomaly Detection, TCP/IP Protocols, Real-Time Data Processing
+

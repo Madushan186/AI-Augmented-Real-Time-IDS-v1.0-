@@ -1,6 +1,17 @@
-ids_env/
+# Runtime Logs
+attack_log.csv
+ids_state.json
+ids_state.json.tmp
+ai_status.json
+
+# Cache
 __pycache__/
 *.pyc
+
+# System
 .DS_Store
-*.tmp
-*.log
+.env
+ids_env/
+
+# Config
+.streamlit/secrets.toml
