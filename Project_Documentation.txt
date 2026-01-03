@@ -1,0 +1,238 @@
+================================================================================
+AI-AUGMENTED REAL-TIME INTRUSION DETECTION SYSTEM (IDS)
+COMPLETE PROJECT DOCUMENTATION & RECREATION GUIDE
+================================================================================
+
+This document contains a complete comprehensive breakdown of the AI-Augmented Real-Time IDS project. 
+It is designed so that anyone reading this can understand every single line of code, the system architecture, and can recreate the entire project from scratch.
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW
+2. SYSTEM ARCHITECTURE & FLOW
+3. DETAILED FILE BREAKDOWNS (CODE EXPLANATIONS)
+    3.1. realtime_ids.py (The Brain)
+    3.2. dashboard.py (The Interface)
+    3.3. run_ids.sh (The Launcher)
+    3.4. dummy_server.py (The Victim)
+    3.5. simulate_attack.py (The Testing Tool)
+    3.6. cleanup_project.py (Utility)
+    3.7. training/train_model.py (The Model Creator)
+    3.8. .streamlit/config.toml (The UI Theme)
+4. HOW TO RECREATE & RUN THE PROJECT
+5. DEPENDENCIES & SETUP
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+The "AI-Augmented Real-Time IDS" is a hybrid cybersecurity system designed to detect network attacks instantly. 
+It combines two detection methods:
+1.  **Rule-Based "UltraThink" Engine (O(1))**: Detects high-rate volumetric attacks (like HTTP Floods) in real-time (<1.0s) using efficient memory structures.
+2.  **Machine Learning (Random Forest)**: Uses a pre-trained AI model to classify complex attack patterns based on packet features (CICIDS2017/NSL-KDD dataset features).
+
+The system captures live network traffic, analyzes it, and updates a "Sci-Fi" style dashboard in real-time.
+
+================================================================================
+2. SYSTEM ARCHITECTURE & FLOW
+================================================================================
+Understanding how the files talk to each other is critical. Here is the data flow:
+
+[NETWORK] --> [realtime_ids.py] --> [ids_state.json] --> [dashboard.py]
+                   ^                                         ^
+                   |                                         |
+              (Sniffs Packets)                          (Reads Status)
+
+1.  **LAUNCH**: You run `run_ids.sh`. This script is the "conductor".
+    - It starts `realtime_ids.py` with `sudo` (needed to listen to network cards).
+    - It starts `dummy_server.py` to act as a target for attacks.
+    - It starts `dashboard.py` in the browser to show you what's happening.
+
+2.  **CAPTURE & DETECT** (`realtime_ids.py`):
+    - This script continuously sniffs packets from your Wi-Fi (`en0`) or Loopback (`lo0`).
+    - **Step A**: A packet arrives.
+    - **Step B**: It updates a "Sliding Window" (a list of recent timestamps) to calculate traffic rate instantly.
+    - **Step C**: If traffic > threshold (e.g., 10 req/s), it flags an "HTTP Flood".
+    - **Step D**: Simultaneously, it extracts 41 features (duration, bytes, flags, etc.) and asks the AI Model: "Is this an attack?".
+    - **Step E**: It writes the result (Safe/Attack) to a tiny file called `ids_state.json`.
+
+3.  **VISUALIZE** (`dashboard.py`):
+    - This script runs in a loop (refreshing every 0.5s).
+    - It continually reads `ids_state.json`.
+    - If the status says "ATTACK", it turns the screen RED and plays an alarm.
+    - If "Normal", it stays GREEN/BLACK.
+
+================================================================================
+3. DETAILED FILE BREAKDOWNS
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1. FILE: realtime_ids.py
+--------------------------------------------------------------------------------
+**Role**: The Core Engine ("The Brain").
+**What it does**: Sniffs packets, calculates features, runs AI model, maintains state.
+
+**Step-by-Step Logic**:
+1.  **Imports**: Uses `scapy` for packet capturing, `pandas`/`numpy` for math, `joblib` for loading the AI model, and `collections.deque` for high-speed memory buffers.
+2.  **Configuration**:
+    - `HTTP_WINDOW_SECONDS = 1.0`: Defines the time window for rate limiting.
+    - `HTTP_REQ_THRESHOLD = 10`: Only triggers if >10 requests happen in 1 second.
+3.  **Initialization**:
+    - Loads the trained Random Forest model (`models/rf_ids_model.pkl`). 
+    - Sets up global counters (`total_packets`, `total_attacks`).
+    - Defines the 41 feature column names (mandatory for the AI model).
+4.  **Helper Functions**:
+    - `log_attack()`: Appends attack details to `attack_log.csv`.
+    - `update_state_file()`: Writes the current status to `ids_state.json` so the dashboard can see it. It uses an atomic write (write to .tmp then rename) to prevent reading crashes.
+    - `extract_features(packet)`:
+        - Converts a raw Scapy packet into numbers the AI understands.
+        - Calculates Duration, Protocol (TCP/UDP/ICMP), and adds counters.
+        - Returns a single-row DataFrame.
+5.  **Main Function: `packet_handler(packet)`**:
+    - This function runs **every time** a packet is detected.
+    - **Logic**:
+        - Appends current timestamp to `packet_times` (deque).
+        - If packet is TCP port 8080, appends to `http_requests`.
+        - **Cleanup**: Removes timestamps older than 1 second (Sliding Window).
+        - **Rule Check**: If `len(http_requests) > 10`, FLAG ATTACK (HTTP Flood).
+        - **ML Check**: Every 5th packet, call `extract_features()` and run `model.predict()`.
+        - **State Update**: If Attack detected -> Change status to "ATTACK", write to file. If cooldown passed -> Change to "Normal".
+6.  **Entry Point**:
+    - Calls `sniff(iface=["en0", "lo0"], prn=packet_handler)` to start the infinite loop of capturing.
+
+--------------------------------------------------------------------------------
+3.2. FILE: dashboard.py
+--------------------------------------------------------------------------------
+**Role**: The User Interface ("The Face").
+**What it does**: Reads `ids_state.json` and renders a UI using Streamlit.
+
+**Step-by-Step Logic**:
+1.  **Setup**: Configures page layout and hides default Streamlit menus.
+2.  **Data Loading**: Defines `read_state()` to safely open `ids_state.json`. If the file is busy or missing, it returns default "Normal" values to avoid crashing.
+3.  **Styling**: Injects Custom CSS to create a "Dark Mode" aesthetic with neon colors (Green/Red/Blue).
+    - Defines classes like `.module-card` for those boxy layouts you see.
+4.  **Layout Rendering**:
+    - **Header**: Displays "AI-AUGMENTED REAL-TIME IDS".
+    - **Module 1 (Packet Capture)**: Shows total packet count read from the JSON.
+    - **Module 2 (Features)**: Displays a string showing the last extracted features (for demo purposes).
+    - **Module 3 (Model)**: Shows that the "Random Forest" model is active.
+    - **Module 4 (Real-Time Detection Engine)**:
+        - This is the most dynamic part.
+        - It checks `state["status"]`.
+        - If "ATTACK": Sets background to RED, adds a "Pulse" animation CSS, and plays an audio file (`st.audio`).
+        - If "NORMAL": Sets background to Greenish-Black.
+5.  **Auto-Refresh**: Ends with `time.sleep(0.5)` and `st.rerun()`, forcing the page to reload twice a second.
+
+--------------------------------------------------------------------------------
+3.3. FILE: run_ids.sh
+--------------------------------------------------------------------------------
+**Role**: The Orchestrator / Launcher.
+**What it does**: Starts all necessary processes in parallel using a Bash Script.
+
+**Step-by-Step Logic**:
+1.  **Sudo Check**: Verifies the script is run as root (`sudo`). This is **mandatory** because `realtime_ids.py` needs permission to sniff network cards.
+2.  **Cleanup Trap**: `trap "kill 0" EXIT` ensures that when you close the script (Ctrl+C), it automatically kills all the background Python processes it started.
+3.  **Start Engine**: `python3 realtime_ids.py &`. The `&` pushes it to the background so the script can continue.
+4.  **Start Victim**: `python3 -m http.server 8080 &`. Starts a built-in Python web server to act as a target.
+5.  **Start Dashboard**:
+    - It checks if you are running as sudo (`$SUDO_USER`).
+    - It runs `streamlit run dashboard.py` **as the normal user** (`sudo -u $SUDO_USER`). This is crucial because if you run the browser as root, it might break Chrome/Safari protections or mess up permissions.
+
+--------------------------------------------------------------------------------
+3.4. FILE: dummy_server.py
+--------------------------------------------------------------------------------
+**Role**: The Victim.
+**What it does**: Opens Port 8080 so attacks have somewhere to connect.
+
+**Logic**:
+- Uses Python's built-in `http.server` (or `socketserver`).
+- Listens on Port 8080.
+- Serves files from the current directory (or just responds 200 OK).
+- This ensures that when we run an attack, the connection is established effectively.
+
+--------------------------------------------------------------------------------
+3.5. FILE: simulate_attack.py
+--------------------------------------------------------------------------------
+**Role**: The Simulation Tool.
+**What it does**: Generates fake malicious traffic (HTTP Flood) to test the system.
+
+**Logic**:
+1.  **Imports**: Uses `scapy` to craft raw packets manually.
+2.  **Configuration**: Targets `192.168.1.5` (or local IP) on Port 8080.
+3.  **Packet Crafting**:
+    - Creates a packet stack: `Ether / IP / TCP`.
+    - Sets Flags="S" (SYN flood) or standard traffic.
+4.  **Loop**:
+    - Runs a `for` loop `PACKET_COUNT` times (e.g., 100).
+    - Calls `sendp()` to blast the packet out of the network interface (`en0`).
+    - Sleeps for `0.01s` between packets to simulate a high rate (100 req/s), which is way above the threshold of 10 req/s.
+
+--------------------------------------------------------------------------------
+3.6. FILE: cleanup_project.py
+--------------------------------------------------------------------------------
+**Role**: Maintenance.
+**What it does**: Deletes temporary files to reset the project.
+
+**Logic**:
+- Lists "Junk" files: `.DS_Store`, `ids_state.json`, `attack_log.csv`, `__pycache__`.
+- Iterates through them and runs `os.remove()` to delete them.
+
+--------------------------------------------------------------------------------
+3.7. FILE: training/train_model.py
+--------------------------------------------------------------------------------
+**Role**: The Model Creator.
+**What it does**: Trains the Artificial Intelligence model.
+
+**Logic**:
+1.  **Reads Data**: Loads `data/KDDTrain+.txt` (The NSL-KDD Dataset).
+2.  **Preprocessing**: Encodes categorical strings (like "TCP", "HTTP") into numbers.
+3.  **Training**: Uses `sklearn.ensemble.RandomForestClassifier` to learn from the data.
+4.  **Saving**: Dumps the trained brain into `models/rf_ids_model.pkl`.
+*Note: This file is only needed if you need to re-train the AI.*
+
+--------------------------------------------------------------------------------
+3.8. FILE: .streamlit/config.toml
+--------------------------------------------------------------------------------
+**Role**: UI Configuration.
+**What it does**: Sets the default dark theme for Streamlit so it matches the "Hacker" aesthetic.
+- Sets `base="dark"`, `primaryColor`, and `backgroundColor` hex codes.
+
+================================================================================
+4. HOW TO RECREATE & RUN THE PROJECT
+================================================================================
+Steps to build this from scratch:
+
+**Phase 1: Setup**
+1.  Create a folder named `AI_IDS`.
+2.  Create all the python files listed above with the described logic.
+3.  Create a `models/` folder.
+4.  Create a `data/` folder and place the `KDDTrain+.txt` dataset in it (download from NSL-KDD repo).
+
+**Phase 2: Training (One Time)**
+1.  Run `python3 training/train_model.py`.
+2.  This will create `models/rf_ids_model.pkl`.
+
+**Phase 3: Execution**
+1.  **Install Requirements**:
+    `pip install -r requirements.txt`
+2.  **Run the System**:
+    `sudo ./run_ids.sh`
+3.  **View**:
+    Open the URL shown (e.g. `localhost:8501`).
+4.  **Attack**:
+    Run `sudo python3 simulate_attack.py` in a new terminal.
+
+================================================================================
+5. DEPENDENCIES (requirements.txt)
+================================================================================
+scapy==2.6.1        
+pandas==2.2.3       
+numpy==1.26.4       
+scikit-learn==1.6.0 
+joblib==1.4.2       
+streamlit==1.41.1   
+plotly==5.24.1      
+watchdog==6.0.0     
+
+--------------------------------------------------------------------------------
+END OF DOCUMENTATION

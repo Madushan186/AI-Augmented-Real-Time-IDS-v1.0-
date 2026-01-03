@@ -9,11 +9,7 @@ from collections import deque
 import datetime
 import sys
 
-# ==========================================
-# FINAL YEAR PROJECT: AI-BASED REAL-TIME IDS
-# ==========================================
-# Author: Lakshitha Madushan
-# Component: Packet Capture & Detection Engine
+
 
 # --- CONFIGURATION ---
 MODEL_PATH = "models/rf_ids_model.pkl"
