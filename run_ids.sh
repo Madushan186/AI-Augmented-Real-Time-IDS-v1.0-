@@ -17,7 +17,7 @@ python3 realtime_ids.py &
 
 # Start Dummy HTTP Server (Victim)
 echo "🌐 Starting Victim Web Server on Port 8080..."
-python3 -m http.server 8080 > /dev/null 2>&1 &
+python3 dummy_server.py &
 
 # Wait a moment for models to load
 sleep 3

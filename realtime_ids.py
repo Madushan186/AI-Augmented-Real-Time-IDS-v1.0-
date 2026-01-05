@@ -19,8 +19,8 @@ LOG_FILE = "attack_log.csv"
 # ULTRATHINK OPTIMIZATION SETTINGS
 # Window: 1.0 second (Instant Feedback). 
 # Threshold: 10 requests. (Anything > 10 req/s is flagged)
-HTTP_WINDOW_SECONDS = 1.0
-HTTP_REQ_THRESHOLD = 10
+HTTP_WINDOW_SECONDS = 0.5
+HTTP_REQ_THRESHOLD = 40
 
 COOLDOWN_DURATION = 0.1    # 0.1s for INSTANT recovery after attack stops
 
@@ -131,7 +131,7 @@ def packet_handler(packet):
     while http_requests and http_requests[0] < (now - HTTP_WINDOW_SECONDS):
         http_requests.popleft()
         
-    while packet_times and packet_times[0] < (now - 1.0):
+    while packet_times and packet_times[0] < (now - 0.5):
         packet_times.popleft()
 
     # Current Counts (Instant access via len)
@@ -157,7 +157,7 @@ def packet_handler(packet):
         sys.stdout.flush() # FORCE VISIBILITY
 
     # RULE 2: Generic Volumetric
-    elif packet_rate > 300:
+    elif packet_rate > 200:
         attack_detected = True
         attack_type = "Volumetric TCP Flood"
         print(f"🚨 [RULE] HIGH TRAFFIC! {packet_rate} pkts/s")
